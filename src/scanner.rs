@@ -9,6 +9,8 @@ use crate::error::{KbError, Result};
 pub enum FileType {
     Markdown,
     PlainText,
+    Pdf,
+    Docx,
 }
 
 /// 扫描到的文件条目
@@ -23,11 +25,15 @@ pub struct ScannedFile {
 /// 支持的扩展名：
 /// - `.md` → Markdown
 /// - `.txt` → PlainText
+/// - `.pdf` → Pdf
+/// - `.docx` → Docx
 /// - 其他 → None
 pub fn detect_file_type(path: &Path) -> Option<FileType> {
     match path.extension()?.to_str()?.to_lowercase().as_str() {
         "md" | "markdown" => Some(FileType::Markdown),
         "txt" => Some(FileType::PlainText),
+        "pdf" => Some(FileType::Pdf),
+        "docx" => Some(FileType::Docx),
         _ => None,
     }
 }
@@ -139,6 +145,22 @@ mod tests {
         assert_eq!(
             detect_file_type(Path::new("test.txt")),
             Some(FileType::PlainText)
+        );
+        assert_eq!(
+            detect_file_type(Path::new("report.pdf")),
+            Some(FileType::Pdf)
+        );
+        assert_eq!(
+            detect_file_type(Path::new("document.docx")),
+            Some(FileType::Docx)
+        );
+        assert_eq!(
+            detect_file_type(Path::new("report.PDF")),
+            Some(FileType::Pdf)
+        );
+        assert_eq!(
+            detect_file_type(Path::new("document.DOCX")),
+            Some(FileType::Docx)
         );
         assert_eq!(detect_file_type(Path::new("test.csv")), None);
         assert_eq!(detect_file_type(Path::new("test")), None);

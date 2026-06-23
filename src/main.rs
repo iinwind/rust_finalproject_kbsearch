@@ -68,7 +68,7 @@ fn handle_index(dir: &Path, index_path: &Path) -> Result<()> {
     println!("发现 {} 个支持的文件", files.len());
 
     if files.is_empty() {
-        println!("未找到可索引的文件（支持 .md 和 .txt 格式）");
+        println!("未找到可索引的文件（支持 .md、.txt、.pdf 和 .docx 格式）");
         return Ok(());
     }
 
@@ -126,7 +126,8 @@ fn handle_search(query: &str, limit: usize, index_path: &Path) -> Result<()> {
     let index = storage.load(index_path)?;
 
     let tokenizer = SimpleTokenizer::new();
-    let searcher = IndexSearcher::new(&index, &tokenizer);
+    let registry = ParserRegistry::with_defaults();
+    let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
     let results = searcher.search(query, limit)?;
 

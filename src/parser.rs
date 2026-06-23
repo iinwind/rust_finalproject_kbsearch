@@ -156,6 +156,86 @@ fn extract_markdown_text(markdown: &str) -> String {
     result
 }
 
+// ========== PdfParser ==========
+
+/// PDF 文件解析器
+///
+/// 使用 pdf-extract 从 PDF 中提取纯文本内容
+pub struct PdfParser;
+
+impl PdfParser {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for PdfParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Parser for PdfParser {
+    fn parse(&self, path: &Path, id: DocId) -> Result<Document> {
+        let content = pdf_extract::extract_text(path).map_err(|e| {
+            KbError::Parse(format!("Failed to parse PDF {}: {}", path.display(), e))
+        })?;
+
+        let title = extract_title(path);
+
+        Ok(Document {
+            id,
+            path: path.to_path_buf(),
+            title,
+            content,
+        })
+    }
+
+    fn supported_extensions(&self) -> &[&str] {
+        &["pdf"]
+    }
+}
+
+// ========== DocxParser ==========
+
+/// DOCX 文件解析器
+///
+/// 使用 docx-lite 从 Word 文档中提取纯文本内容
+pub struct DocxParser;
+
+impl DocxParser {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DocxParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Parser for DocxParser {
+    fn parse(&self, path: &Path, id: DocId) -> Result<Document> {
+        let content = docx_lite::extract_text(path).map_err(|e| {
+            KbError::Parse(format!("Failed to parse DOCX {}: {}", path.display(), e))
+        })?;
+
+        let title = extract_title(path);
+
+        Ok(Document {
+            id,
+            path: path.to_path_buf(),
+            title,
+            content,
+        })
+    }
+
+    fn supported_extensions(&self) -> &[&str] {
+        &["docx"]
+    }
+}
+
 // ========== ParserRegistry ==========
 
 /// 解析器注册表
@@ -173,11 +253,13 @@ impl ParserRegistry {
         }
     }
 
-    /// 创建包含默认解析器的注册表（TxtParser + MarkdownParser）
+    /// 创建包含默认解析器的注册表（TxtParser + MarkdownParser + PdfParser + DocxParser）
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(TxtParser::new()));
         registry.register(Box::new(MarkdownParser::new()));
+        registry.register(Box::new(PdfParser::new()));
+        registry.register(Box::new(DocxParser::new()));
         registry
     }
 
@@ -329,5 +411,215 @@ mod tests {
         // 不应包含 Markdown 标记
         assert!(!text.contains("**"));
         assert!(!text.contains("*"));
+    }
+
+    /// 构造最小合法 DOCX 文件（DOCX 本质是 ZIP 包含 XML）
+    fn create_minimal_docx(path: &Path, text: &str) {
+        use std::io::Write;
+
+        let content_xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:t>{text}</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>"#
+        );
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+        zip.start_file("word/document.xml", options).unwrap();
+        zip.write_all(content_xml.as_bytes()).unwrap();
+
+        zip.start_file("[Content_Types].xml", options).unwrap();
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>"#,
+        ).unwrap();
+
+        zip.start_file("_rels/.rels", options).unwrap();
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#,
+        ).unwrap();
+
+        zip.start_file("word/_rels/document.xml.rels", options)
+            .unwrap();
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+</Relationships>"#,
+        )
+        .unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn test_docx_parser() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.docx");
+        create_minimal_docx(&file_path, "Hello from DOCX");
+
+        let parser = DocxParser::new();
+        let id = generate_doc_id(&file_path);
+        let doc = parser.parse(&file_path, id).unwrap();
+
+        assert_eq!(doc.id, id);
+        assert_eq!(doc.title, "test");
+        assert!(
+            doc.content.contains("Hello from DOCX"),
+            "DOCX content should contain extracted text, got: {:?}",
+            doc.content
+        );
+    }
+
+    #[test]
+    fn test_parser_registry_docx() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("report.docx");
+        create_minimal_docx(&file_path, "Quarterly report");
+
+        let registry = ParserRegistry::with_defaults();
+        let doc = registry.parse_file(&file_path).unwrap();
+
+        assert!(doc.content.contains("Quarterly report"));
+    }
+
+    /// 构造最小合法 PDF 文件（含正确的交叉引用表偏移）
+    fn create_minimal_pdf(path: &Path, text: &str) {
+        use std::io::Write;
+
+        let mut buf = Vec::new();
+        writeln!(buf, "%PDF-1.0").unwrap();
+
+        // 对象 1: Catalog
+        let off1 = buf.len();
+        writeln!(buf, "1 0 obj").unwrap();
+        writeln!(buf, "<< /Type /Catalog /Pages 2 0 R >>").unwrap();
+        writeln!(buf, "endobj").unwrap();
+
+        // 对象 2: Pages
+        let off2 = buf.len();
+        writeln!(buf, "2 0 obj").unwrap();
+        writeln!(buf, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>").unwrap();
+        writeln!(buf, "endobj").unwrap();
+
+        // 对象 3: Page
+        let off3 = buf.len();
+        writeln!(buf, "3 0 obj").unwrap();
+        writeln!(buf, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>").unwrap();
+        writeln!(buf, "endobj").unwrap();
+
+        // 对象 4: Content stream
+        let stream = format!("BT /F1 12 Tf 100 700 Td ({text}) Tj ET");
+        let off4 = buf.len();
+        writeln!(buf, "4 0 obj").unwrap();
+        writeln!(buf, "<< /Length {} >>", stream.len()).unwrap();
+        writeln!(buf, "stream").unwrap();
+        buf.extend_from_slice(stream.as_bytes());
+        writeln!(buf).unwrap();
+        writeln!(buf, "endstream").unwrap();
+        writeln!(buf, "endobj").unwrap();
+
+        // 对象 5: Font
+        let off5 = buf.len();
+        writeln!(buf, "5 0 obj").unwrap();
+        writeln!(
+            buf,
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+        )
+        .unwrap();
+        writeln!(buf, "endobj").unwrap();
+
+        // Cross-reference table
+        let xref_off = buf.len();
+        writeln!(buf, "xref").unwrap();
+        writeln!(buf, "0 6").unwrap();
+        writeln!(buf, "0000000000 65535 f ").unwrap();
+        writeln!(buf, "{:010} 00000 n ", off1).unwrap();
+        writeln!(buf, "{:010} 00000 n ", off2).unwrap();
+        writeln!(buf, "{:010} 00000 n ", off3).unwrap();
+        writeln!(buf, "{:010} 00000 n ", off4).unwrap();
+        writeln!(buf, "{:010} 00000 n ", off5).unwrap();
+
+        // Trailer
+        writeln!(buf, "trailer").unwrap();
+        writeln!(buf, "<< /Size 6 /Root 1 0 R >>").unwrap();
+        writeln!(buf, "startxref").unwrap();
+        writeln!(buf, "{}", xref_off).unwrap();
+        writeln!(buf, "%%EOF").unwrap();
+
+        std::fs::write(path, &buf).unwrap();
+    }
+
+    #[test]
+    fn test_pdf_parser() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.pdf");
+        create_minimal_pdf(&file_path, "Hello from PDF");
+
+        let parser = PdfParser::new();
+        let id = generate_doc_id(&file_path);
+        let doc = parser.parse(&file_path, id).unwrap();
+
+        assert_eq!(doc.id, id);
+        assert_eq!(doc.title, "test");
+        assert!(
+            doc.content.contains("Hello from PDF"),
+            "PDF content should contain extracted text, got: {:?}",
+            doc.content
+        );
+    }
+
+    #[test]
+    fn test_parser_registry_pdf() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("paper.pdf");
+        create_minimal_pdf(&file_path, "Research paper abstract");
+
+        let registry = ParserRegistry::with_defaults();
+        let doc = registry.parse_file(&file_path).unwrap();
+
+        assert!(doc.content.contains("Research paper abstract"));
+    }
+
+    #[test]
+    fn test_pdf_parser_invalid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("bad.pdf");
+        fs::write(&file_path, "this is not a pdf").unwrap();
+
+        let parser = PdfParser::new();
+        let id = generate_doc_id(&file_path);
+        let result = parser.parse(&file_path, id);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_docx_parser_invalid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("bad.docx");
+        fs::write(&file_path, "this is not a docx").unwrap();
+
+        let parser = DocxParser::new();
+        let id = generate_doc_id(&file_path);
+        let result = parser.parse(&file_path, id);
+
+        assert!(result.is_err());
     }
 }

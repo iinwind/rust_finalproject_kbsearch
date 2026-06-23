@@ -45,7 +45,7 @@ fn test_end_to_end_workflow() -> Result<()> {
     assert_eq!(index.doc_count, 3);
 
     // 5. 搜索 "rust"
-    let searcher = IndexSearcher::new(&index, &tokenizer);
+    let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
     let results = searcher.search("rust", 10)?;
 
     assert!(!results.is_empty());
@@ -94,7 +94,8 @@ fn test_index_persistence() -> Result<()> {
     let loaded_index = storage.load(&index_path)?;
 
     // 用加载的索引搜索
-    let searcher = IndexSearcher::new(&loaded_index, &tokenizer);
+    let registry = ParserRegistry::with_defaults();
+    let searcher = IndexSearcher::new(&loaded_index, &tokenizer, &registry);
     let results = searcher.search("rust", 10)?;
 
     assert!(!results.is_empty());
@@ -153,7 +154,7 @@ fn test_tfidf_ranking() -> Result<()> {
 
     let tokenizer = SimpleTokenizer::new();
     let index = InvertedIndex::build_from_documents(&documents, &tokenizer);
-    let searcher = IndexSearcher::new(&index, &tokenizer);
+    let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
     let results = searcher.search("rust", 10)?;
     assert!(!results.is_empty());

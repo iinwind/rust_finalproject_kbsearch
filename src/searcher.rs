@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::indexer::{DocumentMeta, InvertedIndex, Tokenizer};
-use crate::parser::DocId;
+use crate::parser::{DocId, ParserRegistry};
 
 /// 搜索结果条目
 #[derive(Debug, Clone)]
@@ -21,15 +21,24 @@ pub trait SearchEngine {
 
 /// 基于倒排索引的搜索引擎
 ///
-/// 借用 InvertedIndex 和 Tokenizer 的引用，避免数据拷贝
+/// 借用 InvertedIndex、Tokenizer 和 ParserRegistry 的引用，避免数据拷贝
 pub struct IndexSearcher<'a> {
     index: &'a InvertedIndex,
     tokenizer: &'a dyn Tokenizer,
+    registry: &'a ParserRegistry,
 }
 
 impl<'a> IndexSearcher<'a> {
-    pub fn new(index: &'a InvertedIndex, tokenizer: &'a dyn Tokenizer) -> Self {
-        Self { index, tokenizer }
+    pub fn new(
+        index: &'a InvertedIndex,
+        tokenizer: &'a dyn Tokenizer,
+        registry: &'a ParserRegistry,
+    ) -> Self {
+        Self {
+            index,
+            tokenizer,
+            registry,
+        }
     }
 
     /// 生成匹配词附近的文本片段
@@ -39,7 +48,7 @@ impl<'a> IndexSearcher<'a> {
     fn generate_snippet(&self, content: &str, query_tokens: &[String]) -> String {
         // 将换行统一为空格，压缩连续空格
         let normalized: String = content
-            .split(|c: char| c == '\n' || c == '\r')
+            .split(['\n', '\r'])
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
@@ -85,7 +94,13 @@ impl<'a> IndexSearcher<'a> {
         let prefix = if start > 0 { "..." } else { "" };
         let suffix = if end < normalized.len() { "..." } else { "" };
 
-        format!("{}{}{}{}", prefix, if start > 0 { " " } else { "" }, highlighted, suffix)
+        format!(
+            "{}{}{}{}",
+            prefix,
+            if start > 0 { " " } else { "" },
+            highlighted,
+            suffix
+        )
     }
 
     /// 在摘要文本中用 ANSI 粗体+黄色标记匹配的关键词
@@ -142,9 +157,12 @@ impl<'a> SearchEngine for IndexSearcher<'a> {
             .take(limit)
             .filter_map(|(doc_id, score)| {
                 self.index.documents.get(&doc_id).map(|doc_meta| {
-                    // 读取原始文档内容生成 snippet
-                    let snippet = match std::fs::read_to_string(&doc_meta.path) {
-                        Ok(content) => self.generate_snippet(&content, &query_tokens),
+                    // 通过解析器读取文档内容生成 snippet，支持所有文件格式
+                    let snippet = match self
+                        .registry
+                        .parse_file(std::path::Path::new(&doc_meta.path))
+                    {
+                        Ok(doc) => self.generate_snippet(&doc.content, &query_tokens),
                         Err(_) => doc_meta.title.clone(),
                     };
 
@@ -187,7 +205,8 @@ mod tests {
         ];
 
         let index = InvertedIndex::build_from_documents(&docs, &tokenizer);
-        let searcher = IndexSearcher::new(&index, &tokenizer);
+        let registry = ParserRegistry::with_defaults();
+        let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
         let results = searcher.search("rust", 10).unwrap();
 
@@ -206,7 +225,8 @@ mod tests {
         ];
 
         let index = InvertedIndex::build_from_documents(&docs, &tokenizer);
-        let searcher = IndexSearcher::new(&index, &tokenizer);
+        let registry = ParserRegistry::with_defaults();
+        let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
         let results = searcher.search("rust programming", 10).unwrap();
 
@@ -221,7 +241,8 @@ mod tests {
         let docs = vec![make_doc(1, "Hello world")];
 
         let index = InvertedIndex::build_from_documents(&docs, &tokenizer);
-        let searcher = IndexSearcher::new(&index, &tokenizer);
+        let registry = ParserRegistry::with_defaults();
+        let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
         let results = searcher.search("quantum", 10).unwrap();
         assert!(results.is_empty());
@@ -233,7 +254,8 @@ mod tests {
         let docs = vec![make_doc(1, "Hello world")];
 
         let index = InvertedIndex::build_from_documents(&docs, &tokenizer);
-        let searcher = IndexSearcher::new(&index, &tokenizer);
+        let registry = ParserRegistry::with_defaults();
+        let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
         let results = searcher.search("", 10).unwrap();
         assert!(results.is_empty());
@@ -247,7 +269,8 @@ mod tests {
             .collect();
 
         let index = InvertedIndex::build_from_documents(&docs, &tokenizer);
-        let searcher = IndexSearcher::new(&index, &tokenizer);
+        let registry = ParserRegistry::with_defaults();
+        let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
         let results = searcher.search("rust", 2).unwrap();
         assert_eq!(results.len(), 2);
@@ -263,7 +286,8 @@ mod tests {
         ];
 
         let index = InvertedIndex::build_from_documents(&docs, &tokenizer);
-        let searcher = IndexSearcher::new(&index, &tokenizer);
+        let registry = ParserRegistry::with_defaults();
+        let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
         let results = searcher.search("rust", 10).unwrap();
 
