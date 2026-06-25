@@ -81,12 +81,12 @@ fn dirs_home() -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::indexer::SimpleTokenizer;
     use crate::parser::Document;
+    use crate::tokenizer::MixedTokenizer;
     use std::path::PathBuf;
 
     fn make_test_index() -> InvertedIndex {
-        let tokenizer = SimpleTokenizer::new();
+        let tokenizer = MixedTokenizer::new();
         let docs = vec![
             Document {
                 id: 1,

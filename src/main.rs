@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 
 use kbsearch::error::Result;
-use kbsearch::indexer::{InvertedIndex, SimpleTokenizer};
+use kbsearch::indexer::InvertedIndex;
 use kbsearch::parser::ParserRegistry;
 use kbsearch::scanner::scan_directory;
 use kbsearch::searcher::{IndexSearcher, SearchEngine};
 use kbsearch::storage::{default_index_path, IndexStorage, JsonStorage};
+use kbsearch::tokenizer::MixedTokenizer;
 
 #[derive(Parser)]
 #[command(name = "kbsearch", about = "本地知识库搜索系统")]
@@ -103,7 +104,7 @@ fn handle_index(dir: &Path, index_path: &Path) -> Result<()> {
     }
 
     // 3. 构建索引
-    let tokenizer = SimpleTokenizer::new();
+    let tokenizer = MixedTokenizer::new();
     let index = InvertedIndex::build_from_documents(&documents, &tokenizer);
     let stats = index.stats();
 
@@ -125,7 +126,7 @@ fn handle_search(query: &str, limit: usize, index_path: &Path) -> Result<()> {
     let storage = JsonStorage::new();
     let index = storage.load(index_path)?;
 
-    let tokenizer = SimpleTokenizer::new();
+    let tokenizer = MixedTokenizer::new();
     let registry = ParserRegistry::with_defaults();
     let searcher = IndexSearcher::new(&index, &tokenizer, &registry);
 
@@ -146,11 +147,30 @@ fn handle_search(query: &str, limit: usize, index_path: &Path) -> Result<()> {
             result.doc.title
         );
         println!("    路径: {}", result.doc.path);
-        println!("    摘要: {}", result.snippet);
+        println!("    摘要: {}", highlight_ansi(&result.snippet, query));
         println!();
     }
 
     Ok(())
+}
+
+/// 在文本中用 ANSI 粗体+黄色高亮匹配查询词的部分
+fn highlight_ansi(text: &str, query: &str) -> String {
+    let query_lower = query.to_lowercase();
+    let text_lower = text.to_lowercase();
+    let mut result = String::with_capacity(text.len() + 32);
+    let mut last_end = 0;
+
+    while let Some(pos) = text_lower[last_end..].find(query_lower.as_str()) {
+        let abs_pos = last_end + pos;
+        result.push_str(&text[last_end..abs_pos]);
+        result.push_str("\x1b[1;33m");
+        result.push_str(&text[abs_pos..abs_pos + query.len()]);
+        result.push_str("\x1b[0m");
+        last_end = abs_pos + query.len();
+    }
+    result.push_str(&text[last_end..]);
+    result
 }
 
 /// 处理 list 子命令：列出所有已索引文档

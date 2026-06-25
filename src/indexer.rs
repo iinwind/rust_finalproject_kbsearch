@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::parser::{DocId, Document};
+pub use crate::tokenizer::{SimpleTokenizer, Tokenizer};
 
 /// 词项在文档中的位置信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,58 +142,6 @@ impl InvertedIndex {
 impl Default for InvertedIndex {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// ========== Tokenizer ==========
-
-/// 分词器 trait
-pub trait Tokenizer: Send + Sync {
-    /// 将文本分词，返回 token 列表
-    fn tokenize(&self, text: &str) -> Vec<String>;
-}
-
-/// 简单英文分词器
-///
-/// 处理流程：小写化 → 按非字母数字字符分割 → 过滤空串和停用词
-pub struct SimpleTokenizer {
-    stop_words: HashSet<String>,
-}
-
-impl SimpleTokenizer {
-    pub fn new() -> Self {
-        let stop_words: HashSet<String> = [
-            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
-            "by", "from", "is", "it", "that", "this", "was", "are", "be", "been", "being", "have",
-            "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might",
-            "can", "shall", "not", "no", "nor", "so", "if", "then", "than", "too", "very", "just",
-            "about", "above", "after", "again", "all", "also", "am", "as", "because", "before",
-            "between", "both", "each", "few", "more", "most", "other", "own", "same", "some",
-            "such", "up", "out", "only", "into", "over", "down", "here", "there", "when", "where",
-            "why", "how", "what", "which", "who", "whom", "he", "she", "we", "they", "i", "me",
-            "my", "you", "your",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
-        Self { stop_words }
-    }
-}
-
-impl Default for SimpleTokenizer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Tokenizer for SimpleTokenizer {
-    fn tokenize(&self, text: &str) -> Vec<String> {
-        text.to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|s| !s.is_empty() && s.len() > 1 && !self.stop_words.contains(*s))
-            .map(|s| s.to_string())
-            .collect()
     }
 }
 

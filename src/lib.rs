@@ -4,3 +4,4 @@ pub mod parser;
 pub mod scanner;
 pub mod searcher;
 pub mod storage;
+pub mod tokenizer;
