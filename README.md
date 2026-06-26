@@ -122,18 +122,21 @@ cargo run -- reindex ./my-docs
 ## 项目结构
 
 ```
-src/
-├── main.rs        # CLI 入口，子命令分发
-├── lib.rs         # 模块声明
-├── error.rs       # 统一错误类型 KbError（thiserror 派生）
-├── scanner.rs     # 文件扫描与类型检测
-├── parser.rs      # 多格式文档解析器（Parser trait + 四种实现）
-├── tokenizer.rs   # 中英文混合分词（Tokenizer trait + 三种实现）
-├── indexer.rs     # 倒排索引构建与 TF-IDF 计算
-├── storage.rs     # 索引持久化（IndexStorage trait + JSON 实现）
-└── searcher.rs    # 搜索引擎（SearchEngine trait + TF-IDF 排序）
-tests/
-└── integration_test.rs  # 集成测试
+kbsearch/
+├── Cargo.toml              # 项目配置文件，定义依赖与元信息
+├── README.md               # 项目说明文档
+├── src/
+│   ├── main.rs             # CLI 入口，子命令分发
+│   ├── lib.rs              # 模块声明
+│   ├── error.rs            # 统一错误类型 KbError（thiserror 派生）
+│   ├── scanner.rs          # 文件扫描与类型检测
+│   ├── parser.rs           # 多格式文档解析器（Parser trait + 四种实现）
+│   ├── tokenizer.rs        # 中英文混合分词（Tokenizer trait + 三种实现）
+│   ├── indexer.rs          # 倒排索引构建与 TF-IDF 计算
+│   ├── storage.rs          # 索引持久化（IndexStorage trait + JSON 实现）
+│   └── searcher.rs         # 搜索引擎（SearchEngine trait + TF-IDF 排序）
+└── tests/
+    └── integration_test.rs # 集成测试
 ```
 
 ## 代码测试
@@ -155,4 +158,3 @@ cargo test --test integration_test
 cargo fmt      # 格式化代码
 cargo clippy   # 静态检查
 ```
-
